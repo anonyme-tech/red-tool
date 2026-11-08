@@ -1,0 +1,54 @@
+﻿{
+  "name": "Lab MS365 Example",
+  "protocol": "https",
+  "host": "127.0.0.1",
+  "port": 8443,
+  "profile": "ms365",
+  "enabled": true,
+  "use_ssl": true,
+  "config": {
+    "http_config": {
+      "method": "POST",
+      "uris": ["/lab/heartbeat", "/api/status", "/sync"],
+      "user_agents": [
+        "LabSimulator/1.0",
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+        "OutlookIos/5.0"
+      ],
+      "headers": {
+        "Accept": "*/*",
+        "Accept-Language": "en-US,en;q=0.9",
+        "X-Lab-Profile": "ms365"
+      },
+      "callback_port": 8443,
+      "host_rotation": false
+    },
+    "beacon_config": {
+      "beacon_interval": 5,
+      "jitter": 0.3,
+      "max_retries": 3,
+      "retry_delay": 0,
+      "timeout": 10,
+      "use_sleep_obfuscation": false,
+      "sleep_obfuscation_type": "none"
+    },
+    "ssl_config": {
+      "use_ssl": true,
+      "verify_peer": false,
+      "tls_version": "simulation",
+      "self_signed": false
+    },
+    "encryption_config": {
+      "encryption_type": "simulation",
+      "generate_key": true,
+      "hmac_enabled": true
+    },
+    "domain_fronting_config": {
+      "enabled": false
+    }
+  },
+  "metadata": {
+    "purpose": "local lab example",
+    "mode": "defensive-simulation"
+  }
+}

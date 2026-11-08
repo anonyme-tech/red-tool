@@ -1,0 +1,42 @@
+# Secrets / données locales
+*.pem
+*.key
+*.db
+config.txt
+hydra.restore
+.env
+.env.*
+audit_*.json
+*.zip
+models/
+out/
+part0/
+
+# Binaires / builds (reconstruits à partir du source)
+*.exe
+*.pdb
+*.dll
+*.tar.gz
+*.bak
+temp_build_*/
+publish/
+bin/
+obj/
+
+# Certificats / backups
+*.crt
+*.bak
+
+# Dépendances / caches
+node_modules/
+venv/
+.venv/
+__pycache__/
+*.pyc
+.cache/
+dist/
+build/
+
+# IDE
+.idea/
+.vscode/

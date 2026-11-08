@@ -1,0 +1,53 @@
+﻿{
+  "name": "Lab AWS Example",
+  "protocol": "https",
+  "host": "127.0.0.1",
+  "port": 9443,
+  "profile": "amazon",
+  "enabled": true,
+  "use_ssl": true,
+  "config": {
+    "http_config": {
+      "method": "POST",
+      "uris": ["/lab/heartbeat", "/health", "/api/v1/ping"],
+      "user_agents": [
+        "LabSimulator/1.0",
+        "aws-cli/2.0.0 Python/3.8.0",
+        "curl/7.64.1"
+      ],
+      "headers": {
+        "Accept": "application/json",
+        "X-Lab-Profile": "amazon"
+      },
+      "callback_port": 9443,
+      "host_rotation": false
+    },
+    "beacon_config": {
+      "beacon_interval": 10,
+      "jitter": 0.2,
+      "max_retries": 3,
+      "retry_delay": 5,
+      "timeout": 10,
+      "use_sleep_obfuscation": false,
+      "sleep_obfuscation_type": "none"
+    },
+    "ssl_config": {
+      "use_ssl": true,
+      "verify_peer": false,
+      "tls_version": "simulation",
+      "self_signed": false
+    },
+    "encryption_config": {
+      "encryption_type": "simulation",
+      "generate_key": true,
+      "hmac_enabled": true
+    },
+    "domain_fronting_config": {
+      "enabled": false
+    }
+  },
+  "metadata": {
+    "purpose": "local lab example",
+    "mode": "defensive-simulation"
+  }
+}

